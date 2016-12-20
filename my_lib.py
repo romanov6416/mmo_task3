@@ -1,3 +1,4 @@
+import random
 import sys
 import math
 import time
@@ -5,6 +6,7 @@ import datetime
 import numpy as np
 # import pandas as pd
 import pandas
+from scipy.spatial.distance import euclidean
 from sklearn import cross_validation
 from sklearn.svm import LinearSVC
 from sklearn.preprocessing import scale
@@ -12,12 +14,12 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.cluster.k_means_ import KMeans
 from sklearn import linear_model
 from scipy.spatial import Voronoi
+import copy
 
 
-def get_distance(data1, data2):
-    data3 = np.sum(np.power(data1 - data2, 2))
-    data3 = np.sqrt(data3)
-    return data3
+def get_distance(a1_list, a2_list):
+    # return np.sqrt(np.sum(np.power(a1 - a2, 2)))  # sqrt( (x11 - x21)^2 + ... + (x1n - x2n)^2 )
+    return max([euclidean(a1, a2) for a1, a2 in zip(a1_list, a2_list)])
 
 
 def print_time_stamp(t2, t1):
@@ -68,6 +70,48 @@ def fit_and_predict(train_file, test_file, result_file, type):
     
     result.close()
     
+    
+def train_k_means(n_clusters, init_cluster_centers, x_array, eps):
+    # eps = 1e-4
+    # eps = 0.1
+    # eps = 100.0
+    # prev_sample = np.array(clf.cluster_centers_, np.float)
+    prev_centers = init_cluster_centers
+    clf = KMeans(init=prev_centers, n_clusters=n_clusters, n_init=1, n_jobs=-1, tol=eps, max_iter=1)
+    # if isinstance(prev_centers, str):
+    #     prev_centers = clf.cluster_centers_
+    clf.fit(x_array)
+    new_centers = clf.cluster_centers_
+    
+    centers_list = [prev_centers, new_centers]
+    args = [1]
+    values = [clf.inertia_]
+    while get_distance(prev_centers, new_centers) > eps:
+        prev_centers = new_centers
+        clf = KMeans(init=prev_centers, n_clusters=n_clusters, n_init=1, n_jobs=-1, tol=eps, max_iter=1).fit(x_array)
+        new_centers = clf.cluster_centers_
+        args.append(len(args) + 1)
+        values.append(clf.inertia_)
+        centers_list.append(new_centers)
+    # print "k = %s, len centers = %s" % (n_clusters, len(f_values))
+    return args, values, centers_list
+
+
+def get_random_centers(x_array, n_clusters):
+    return np.array([random.choice(x_array) for i in range(n_clusters)])
+
+
+def get_k_away_centers(x_array, n_cluster):
+    away_centers = [random.choice(x_array)]
+    for i in range(n_cluster - 1):
+        distances = [
+            reduce(lambda d, y: d + euclidean(x, y), away_centers, 0.0)
+            for x in x_array
+        ]
+        index = distances.index(max(distances))
+        away_centers.append(x_array[index])
+    return np.array(away_centers)
+
 
 def main(argv):
     start_time = time.time()
@@ -81,28 +125,32 @@ def main(argv):
     
     x_array = train_sample[train_sample.columns[1:]].values
     y = train_sample[train_sample.columns[0]].values
-
     curr_time = datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')
     print("before training -> %s " % curr_time)
     
-    clf = KMeans(init="random", n_jobs=-1)
-    clf.fit(x_array, y)
-
-    curr_time = datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')
-    print("before predicting -> %s " % curr_time)
-    
-    t = test_sample.values
-    prediction = clf.predict(t)
-
-    result_file.write('"ImageId","Label"\n')
-    for i in range(len(prediction)):
-        string = str(i + 1) + "," + str(prediction[i]) + '\n'
-        result_file.write(string)
-    result_file.close()
-    
-    print_time_stamp(time.time(), start_time)
+    # k = 1
+    # init_centers = np.array([np.random.random_integers(0, 255, len(x_array[i]))
+    #                          for i in range(k)])
+    for k in range(1, 16):
+        # init_centers = get_random_centers(x_array, k)
+        # random_centers = get_random_centers(x_array, k)
+        init_centers = get_k_away_centers(x_array, k)
+        train_k_means(k, init_centers, x_array, 1000.0)
+    #
+    # curr_time = datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')
+    # print("before predicting -> %s " % curr_time)
+    #
+    # t = test_sample.values
+    # prediction = clf.predict(t)
+    #
+    # result_file.write('"ImageId","Label"\n')
+    # for i in range(len(prediction)):
+    #     string = str(i + 1) + "," + str(prediction[i]) + '\n'
+    #     result_file.write(string)
+    # result_file.close()
+    #
+    # print_time_stamp(time.time(), start_time)
 
 
 if __name__ == "__main__":
     main(sys.argv)
-    
