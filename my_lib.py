@@ -71,7 +71,7 @@ def fit_and_predict(train_file, test_file, result_file, type):
     result.close()
     
     
-def train_k_means(n_clusters, init_cluster_centers, x_array, eps):
+def train_k_means_by_step(n_clusters, init_cluster_centers, x_array, eps):
     # eps = 1e-4
     # eps = 0.1
     # eps = 100.0
@@ -113,6 +113,52 @@ def get_k_away_centers(x_array, n_cluster):
     return np.array(away_centers)
 
 
+def train_k_means(n_clusters, init_type, x_array, y, eps, n_init):
+    inertias = []
+    iterations = []
+    entropys = []
+    for i in range(n_init):
+        # fill matrix by zero
+        n_matrix = np.zeros((len(y), n_clusters), dtype=np.int)
+        if init_type == "random":
+            init = "random"
+        elif init_type == "k_away":
+            init = get_k_away_centers(x_array, n_clusters)
+        else:
+            raise NotImplementedError
+        
+        clf = KMeans(init=init, n_clusters=n_clusters, n_init=1, n_jobs=-1, tol=eps)
+        clf.fit(x_array)
+        # Q value
+        inertias.append(clf.inertia_)
+        # iterations number
+        iterations.append(clf.n_iter_)
+        # labels
+        for j in range(len(y)):
+            digit = y[j]
+            cluster = clf.labels_[j]
+            n_matrix[digit][cluster] += 1
+        n = float(len(y))
+
+        # print "n_matrix = ", n_matrix
+        Hyz = - reduce(lambda s, p: s + (p * math.log(p, 2) if p > 0 else 0),
+                       [
+                           n_matrix[digit][cluster] / n
+                           for cluster in range(n_clusters)
+                           for digit in range(len(y))
+                       ],
+                       0.0)
+        Hz = - reduce(lambda s, p: s + (p * math.log(p, 2) if p > 0 else 0),
+                      [
+                          sum(n_matrix[digit], 0.0) / n
+                          for digit in range(len(y))
+                          ],
+                      0.0)
+        entropys.append(Hyz - Hz)
+        
+    return iterations, inertias, entropys
+
+
 def main(argv):
     start_time = time.time()
     curr_time = datetime.datetime.fromtimestamp(start_time).strftime('%Y-%m-%d %H:%M:%S')
@@ -122,7 +168,7 @@ def main(argv):
     test_sample = pandas.read_csv(argv[2])
     result_file = open(argv[3], "w")
     # type = argv[4]
-    
+    print "log = ", 5 * math.log(4,2)
     x_array = train_sample[train_sample.columns[1:]].values
     y = train_sample[train_sample.columns[0]].values
     curr_time = datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')
@@ -134,22 +180,10 @@ def main(argv):
     for k in range(1, 16):
         # init_centers = get_random_centers(x_array, k)
         # random_centers = get_random_centers(x_array, k)
-        init_centers = get_k_away_centers(x_array, k)
-        train_k_means(k, init_centers, x_array, 1000.0)
-    #
-    # curr_time = datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')
-    # print("before predicting -> %s " % curr_time)
-    #
-    # t = test_sample.values
-    # prediction = clf.predict(t)
-    #
-    # result_file.write('"ImageId","Label"\n')
-    # for i in range(len(prediction)):
-    #     string = str(i + 1) + "," + str(prediction[i]) + '\n'
-    #     result_file.write(string)
-    # result_file.close()
-    #
-    # print_time_stamp(time.time(), start_time)
+        # init_centers = get_k_away_centers(x_array, k)
+        train_k_means(k, "random", x_array, y, 10.0, 1)
+        print "k = %s completed" % k
+
 
 
 if __name__ == "__main__":
